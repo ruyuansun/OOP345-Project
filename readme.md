@@ -1,3 +1,9 @@
+## Academic Integrity and Usage Disclaimer
+
+This repository is publicly available for the purpose of seeking co-op opportunities. Please note that students should adhere to academic integrity and avoid directly copying assignments from this repository.
+
+---
+
 # Project Overview
 
 The purpose of this term project is to put your C++ Object Oriented skills to practice by developing a simulation of an assembly line with any number of stations. A line with 3 Stations is illustrated in the figure below.
