@@ -1,0 +1,130 @@
+1. CustomerOrder Module
+
+1.1. Data Structure
+
+A CustomerOrder object manages a single order on the assembly line and contains the following information:
+	struct Item
+	{
+		std::string m_itemName;
+		size_t m_serialNumber{ 0 };
+		bool m_isFilled{ false };
+
+		Item(const std::string& src) : m_itemName(src) {};
+	};
+	class CustomerOrder {
+		std::string m_name{ "" };   //the name of the customer
+		std::string m_product{ "" };   //the name of the product being assembled (order name)
+		size_t m_cntItem{ 0u };   //a count of the number of items in the customer's orders
+		Item** m_lstItem{ nullptr };  //a dynamically allocated array of pointers. 
+		static size_t m_widthField;   //the maximum width of a field
+	public:
+		......
+	};
+The CustomerOrder class has a dynamically allocated array of pointers to Item structures. The number of items in a 
+customer order is not fixed, so the length of the Item* array is uncertain. In this case, a dynamically allocated 
+array is applied. The list of items in the order is like x * item1 + y * item2 + z * item3 ...
+
+1.2. fillItem(), isItemFilled(), and isOrderFilled()
+
+void fillItem(Station& station, std::ostream& os) attempts to fill the item at the station. First, it goes through the 
+order and checks whether the order contains unfilled item handled by the station. If the unfilled item is found, fill 
+the item untils the station runs out of stock.
+
+bool CustomerOrder::isItemFilled(const std::string& itemName) const looks through the order for any unfilled item
+handeled by the station. If not found, then all of this item in the order is filled.
+
+bool CustomerOrder::isOrderFilled() const returns true if every item in the order is filled.
+
+2. Workstation Module
+
+bool Workstation::attemptToMoveOrder() checks if the item in the order that is handled by the workstation has been 
+processed by the workstation (i.e. Workstation::fill() has been called). 
+Before Workstation::fill() is attampted, the order can only be passed to the next station (if there's one) directly 
+when no inventory is at current station (considered as unfulfilled).
+If Workstation::fill() has been attempted, the order can be passed to the next station (if there's one) when none 
+of items in the order is needed from this station (considered as fulfilled). If the order needs item from this 
+station, the status of the item should be either fulfilled or unfulfilled (i.e. it runs out of inventory at this 
+station). We can use the status of item to verifies the qualification of passing to the next station.
+
+   bool Workstation::attemptToMoveOrder() {
+      if (!m_orders.empty()) {
+         if (m_orders.front().isItemFilled(this->getItemName()) || this->getQuantity() == 0) {  //If the order requires no more service at this station (i.e. item is fulfilled) or cannot be filled
+            //OR the order cannot be filled (i.e. item is not fulfilled because of not enough inventory at this station)
+            if (m_pNextStation != nullptr) {  //if there's a next station
+               *m_pNextStation += std::move(m_orders.front());
+            }
+            else {
+               if (m_orders.front().isOrderFilled()) {   //if the whole order is fulfilled
+                  g_completed.push_back(std::move(m_orders.front()));
+               }
+               else {
+                  g_incomplete.push_back(std::move(m_orders.front()));
+               }
+            }
+            m_orders.pop_front();  //removes the first element from the queue
+            return true;
+         }
+      }
+      return false;
+   }
+
+3. LineManager Module
+In the LineManager constructor, find the first station in the m_activeLine vector is requested. In other word,
+it looks for the station that is not the next station of any station. We use algorithm find_if to iterate over the 
+vector, and compare the station with all next stations. If a station cannot find a match after comparation, it 
+is the first station. find_if returns last iterator when predication is false for all element. We use this feature 
+as a flag of finding the first station.
+
+   LineManager::LineManager(const std::string& file, const std::vector<Workstation*>& stations) {
+
+      //vector<Workstation*>& stations stores all stations read from station1.txt and station2.txt. 
+      if (file.empty()) {
+         throw string("ERROR: No filename provided.");
+      }
+      ifstream filename(file);
+      if (!filename)
+         throw string("Unable to open [") + file + "] file.";
+      
+      try {
+         string record;
+         while (!filename.eof()) {
+            getline(filename, record);
+            string workstation = record.substr(0, record.find('|'));
+            string nextWorkstation = record.erase(0, workstation.size() + 1);    //erase the first substring and the delimiter
+
+            //iterate over all stations to find the address of matching station
+            auto it = find_if(stations.begin(), stations.end(), [=](Workstation* station) {  //use [=] to get workstation string, Workstation* station repsents the current element of vector<Workstation*>& stations
+               return workstation == station->getItemName();
+               });
+            m_activeLine.push_back(*it);
+
+            if (nextWorkstation != "") {
+               auto it_nw = find_if(stations.begin(), stations.end(), [=](Workstation* station) {
+                  return nextWorkstation == station->getItemName();
+                  });
+               m_activeLine.back()->setNextStation(*it_nw);    //set the next staion for the current station
+            }
+            else {   //the last station with no next station
+               m_activeLine.back()->setNextStation(nullptr);
+            }
+         }
+
+         //find the first station = find the station in m_activeLine that is not the next station of any station
+         for_each(m_activeLine.begin(), m_activeLine.end(), [&](Workstation* workStation1) {
+            //find_if: If pred is false for all elements, the function returns last. https://cplusplus.com/reference/algorithm/find_if/
+            auto previousOfStation1 = std::find_if(m_activeLine.begin(), m_activeLine.end(), [&](Workstation* workStation2)
+               {
+                  return workStation1 == workStation2->getNextStation();
+               });
+            if (previousOfStation1 == m_activeLine.end())   //if previousOfStation1 is not found, workStation is the first station.
+            {
+               m_firstStation = workStation1;
+            }
+            });
+
+         m_cntCustomerOrder = g_pending.size();
+      }
+      catch (...) {
+         throw "Error in LineManager constructor.";
+      }
+   }
